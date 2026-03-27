@@ -1,0 +1,30 @@
+{
+  "name": "compendiumrpg",
+  "version": "1.0.0",
+  "description": "Um sistema independente de RPG feito por pirados com graduação em T.I.",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cffdo20/compendiumRPG.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/cffdo20/compendiumRPG/issues"
+  },
+  "homepage": "https://github.com/cffdo20/compendiumRPG#readme",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.20.0",
+    "uuid": "^9.0.0"
+  }
+}
