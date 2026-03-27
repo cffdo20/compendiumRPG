@@ -1,5 +1,6 @@
 import { pool } from "../../db/connection.js";
 import { v4 as uuidv4 } from "uuid";
+import { registrarHistorico } from "../../utils/historico.js";
 
 const TIPOS_ITEM = ["arma", "armadura", "consumivel", "outro"];
 
@@ -10,7 +11,7 @@ function normalizarNome(nome) {
 // =========================
 // CRIAR
 // =========================
-export async function criar({ sistema_id, nome, descricao, tipo }) {
+export async function criar({ sistema_id, nome, descricao, tipo, usuario_id }) {
   const id = uuidv4();
   const nomeNormalizado = normalizarNome(nome);
 
@@ -26,7 +27,20 @@ export async function criar({ sistema_id, nome, descricao, tipo }) {
       [id, sistema_id, nomeNormalizado, descricao, tipo]
     );
 
-    return result.rows[0];
+    const item = result.rows[0];
+
+    // 🔥 histórico
+    await registrarHistorico({
+      sistema_id,
+      entidade: "item",
+      entidade_id: id,
+      usuario_id,
+      mudancas: {
+        depois: item
+      }
+    });
+
+    return item;
 
   } catch (err) {
     if (err.code === "23505") {
@@ -70,6 +84,14 @@ export async function atualizar(id, sistema_id, data) {
     throw new Error("Tipo de item inválido");
   }
 
+  // 🔥 pegar antes
+  const antesResult = await pool.query(
+    "SELECT * FROM itens WHERE id = $1 AND sistema_id = $2",
+    [id, sistema_id]
+  );
+
+  const antes = antesResult.rows[0];
+
   try {
     const result = await pool.query(
       `UPDATE itens
@@ -81,7 +103,21 @@ export async function atualizar(id, sistema_id, data) {
       [nomeNormalizado, data.descricao, data.tipo, id, sistema_id]
     );
 
-    return result.rows[0];
+    const depois = result.rows[0];
+
+    // 🔥 histórico
+    await registrarHistorico({
+      sistema_id,
+      entidade: "item",
+      entidade_id: id,
+      usuario_id: data.usuario_id,
+      mudancas: {
+        antes,
+        depois
+      }
+    });
+
+    return depois;
 
   } catch (err) {
     if (err.code === "23505") {
@@ -94,11 +130,30 @@ export async function atualizar(id, sistema_id, data) {
 // =========================
 // REMOVER
 // =========================
-export async function remover(id, sistema_id) {
+export async function remover(id, sistema_id, usuario_id) {
+  // 🔥 pegar antes
+  const antesResult = await pool.query(
+    "SELECT * FROM itens WHERE id = $1 AND sistema_id = $2",
+    [id, sistema_id]
+  );
+
+  const antes = antesResult.rows[0];
+
   await pool.query(
     "DELETE FROM itens WHERE id = $1 AND sistema_id = $2",
     [id, sistema_id]
   );
+
+  // 🔥 histórico
+  await registrarHistorico({
+    sistema_id,
+    entidade: "item",
+    entidade_id: id,
+    usuario_id,
+    mudancas: {
+      antes
+    }
+  });
 
   return { sucesso: true };
 }

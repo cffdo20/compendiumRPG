@@ -1,5 +1,6 @@
 import { pool } from "../../db/connection.js";
 import { v4 as uuidv4 } from "uuid";
+import { registrarHistorico } from "../../utils/historico.js";
 
 const STATUS_VALIDOS = [
   "em_votacao",
@@ -35,7 +36,20 @@ export async function criar(data) {
     [id, sistema_id, titulo, descricao, autor_id, tipo, status]
   );
 
-  return result.rows[0];
+  const proposta = result.rows[0];
+
+  // 🔥 histórico
+  await registrarHistorico({
+    sistema_id,
+    entidade: "proposta",
+    entidade_id: id,
+    usuario_id: autor_id,
+    mudancas: {
+      depois: proposta
+    }
+  });
+
+  return proposta;
 }
 
 // =========================
@@ -53,7 +67,6 @@ export async function listar(sistema_id) {
 // =========================
 // BUSCAR PROPOSTAS POR TAG
 // =========================
-
 export async function listarComFiltro(sistema_id, tag) {
   if (!tag) {
     return listar(sistema_id);
@@ -106,11 +119,20 @@ export async function buscarPorId(id, sistema_id) {
 // ATUALIZAR
 // =========================
 export async function atualizar(id, sistema_id, data) {
-  const { titulo, descricao, status } = data;
+  const { titulo, descricao, status, usuario_id } = data;
 
   if (status && !STATUS_VALIDOS.includes(status)) {
     throw new Error("Status inválido");
   }
+
+  // 🔥 pegar antes
+  const antesResult = await pool.query(
+    `SELECT * FROM propostas
+     WHERE id = $1 AND sistema_id = $2`,
+    [id, sistema_id]
+  );
+
+  const antes = antesResult.rows[0];
 
   const result = await pool.query(
     `UPDATE propostas
@@ -126,13 +148,36 @@ export async function atualizar(id, sistema_id, data) {
     throw new Error("Proposta não encontrada no sistema");
   }
 
-  return result.rows[0];
+  const depois = result.rows[0];
+
+  // 🔥 histórico
+  await registrarHistorico({
+    sistema_id,
+    entidade: "proposta",
+    entidade_id: id,
+    usuario_id,
+    mudancas: {
+      antes,
+      depois
+    }
+  });
+
+  return depois;
 }
 
 // =========================
 // REMOVER
 // =========================
-export async function remover(id, sistema_id) {
+export async function remover(id, sistema_id, usuario_id) {
+  // 🔥 pegar antes
+  const antesResult = await pool.query(
+    `SELECT * FROM propostas
+     WHERE id = $1 AND sistema_id = $2`,
+    [id, sistema_id]
+  );
+
+  const antes = antesResult.rows[0];
+
   const result = await pool.query(
     `DELETE FROM propostas
      WHERE id = $1 AND sistema_id = $2
@@ -143,6 +188,17 @@ export async function remover(id, sistema_id) {
   if (!result.rows.length) {
     throw new Error("Proposta não encontrada no sistema");
   }
+
+  // 🔥 histórico
+  await registrarHistorico({
+    sistema_id,
+    entidade: "proposta",
+    entidade_id: id,
+    usuario_id,
+    mudancas: {
+      antes
+    }
+  });
 
   return { sucesso: true };
 }

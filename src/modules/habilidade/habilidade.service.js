@@ -1,21 +1,18 @@
 import { pool } from "../../db/connection.js";
 import { v4 as uuidv4 } from "uuid";
+import { registrarHistorico } from "../../utils/historico.js";
 
 const TIPOS_VALIDOS = ["atributo", "nivel", "classe", "habilidade"];
 const OPERADORES_VALIDOS = [">=", ">", "=", "<=", "<"];
 const TIPOS_HABILIDADE = ["ativa", "passiva"];
 
-if (!TIPOS_VALIDOS.includes(p.tipo)) {
-  throw new Error("Tipo de prerequisito inválido");
-}
-
 function validarPrerequisitos(prerequisitos = []) {
   for (const p of prerequisitos) {
-    if (!TIPOS_PREREQUISITO.includes(p.tipo)) {
+    if (!TIPOS_VALIDOS.includes(p.tipo)) {
       throw new Error(`Tipo inválido: ${p.tipo}`);
     }
 
-    if (p.operador && !OPERADORES.includes(p.operador)) {
+    if (p.operador && !OPERADORES_VALIDOS.includes(p.operador)) {
       throw new Error(`Operador inválido: ${p.operador}`);
     }
 
@@ -41,7 +38,8 @@ export async function criar(data) {
     tipo,
     custo,
     classe_id,
-    prerequisitos = []
+    prerequisitos = [],
+    usuario_id
   } = data;
 
   if (!TIPOS_HABILIDADE.includes(tipo)) {
@@ -75,14 +73,27 @@ export async function criar(data) {
           p.referencia_id,
           p.valor,
           p.operador,
-          p.grupo
+          p.group
         ]
       );
     }
 
     await client.query("COMMIT");
 
-    return result.rows[0];
+    const habilidade = result.rows[0];
+
+    // 🔥 histórico
+    await registrarHistorico({
+      sistema_id,
+      entidade: "habilidade",
+      entidade_id: id,
+      usuario_id,
+      mudancas: {
+        depois: habilidade
+      }
+    });
+
+    return habilidade;
 
   } catch (err) {
     await client.query("ROLLBACK");
@@ -136,7 +147,8 @@ export async function atualizar(id, sistema_id, data) {
     tipo,
     custo,
     classe_id,
-    prerequisitos
+    prerequisitos,
+    usuario_id
   } = data;
 
   if (tipo && !TIPOS_HABILIDADE.includes(tipo)) {
@@ -147,6 +159,15 @@ export async function atualizar(id, sistema_id, data) {
 
   try {
     await client.query("BEGIN");
+
+    // 🔥 pegar antes
+    const antesResult = await client.query(
+      `SELECT * FROM habilidades
+       WHERE id = $1 AND sistema_id = $2`,
+      [id, sistema_id]
+    );
+
+    const antes = antesResult.rows[0];
 
     const result = await client.query(
       `UPDATE habilidades
@@ -164,7 +185,6 @@ export async function atualizar(id, sistema_id, data) {
       throw new Error("Habilidade não encontrada");
     }
 
-    // 🔥 atualizar prerequisitos
     if (prerequisitos) {
       validarPrerequisitos(prerequisitos);
 
@@ -194,7 +214,21 @@ export async function atualizar(id, sistema_id, data) {
 
     await client.query("COMMIT");
 
-    return result.rows[0];
+    const depois = result.rows[0];
+
+    // 🔥 histórico
+    await registrarHistorico({
+      sistema_id,
+      entidade: "habilidade",
+      entidade_id: id,
+      usuario_id,
+      mudancas: {
+        antes,
+        depois
+      }
+    });
+
+    return depois;
 
   } catch (err) {
     await client.query("ROLLBACK");
@@ -207,7 +241,16 @@ export async function atualizar(id, sistema_id, data) {
 // =========================
 // REMOVER
 // =========================
-export async function remover(id, sistema_id) {
+export async function remover(id, sistema_id, usuario_id) {
+  // 🔥 pegar antes
+  const antesResult = await pool.query(
+    `SELECT * FROM habilidades
+     WHERE id = $1 AND sistema_id = $2`,
+    [id, sistema_id]
+  );
+
+  const antes = antesResult.rows[0];
+
   const result = await pool.query(
     `DELETE FROM habilidades
      WHERE id = $1 AND sistema_id = $2`,
@@ -217,6 +260,17 @@ export async function remover(id, sistema_id) {
   if (!result.rowCount) {
     throw new Error("Habilidade não encontrada");
   }
+
+  // 🔥 histórico
+  await registrarHistorico({
+    sistema_id,
+    entidade: "habilidade",
+    entidade_id: id,
+    usuario_id,
+    mudancas: {
+      antes
+    }
+  });
 
   return { sucesso: true };
 }
